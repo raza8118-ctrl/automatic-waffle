@@ -1,0 +1,1148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>3Gen RCM Team Portal</title>
+<script src="https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.23.2/babel.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Segoe UI',system-ui,sans-serif;background:#f1f5fb;min-height:100vh}
+input,select,textarea{font-family:inherit}
+::-webkit-scrollbar{width:6px;height:6px}
+::-webkit-scrollbar-track{background:#f1f5f9}
+::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:3px}
+table{border-collapse:collapse;width:100%}
+@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+.fade{animation:fadeIn 0.3s ease}
+</style>
+</head>
+<body>
+<div id="root"><div style="display:flex;align-items:center;justify-content:center;height:100vh;color:#64748b;font-size:15px;font-family:sans-serif">Loading 3Gen RCM Portal…</div></div>
+<script type="text/babel">
+
+// ╔══════════════════════════════════════════════════╗
+// ║  PASTE YOUR SUPABASE DETAILS HERE                ║
+// ╚══════════════════════════════════════════════════╝
+const SUPABASE_URL = https://blgwwlzidffeuvtkjdwe.supabase.co;
+const SUPABASE_KEY = eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsZ3d3bHppZGZmZXV2dGtqZHdlIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY4ODUzMDksImV4cCI6MjA5MjQ2MTMwOX0.-wJ5j3YucH6mkm68MslNit8i5Wir0dqAEU--vPBl6Cs;
+
+// ── Init ─────────────────────────────────────────────
+const sb = window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+const { useState, useEffect, useCallback } = React;
+
+// ── Storage ───────────────────────────────────────────
+const S = {
+  get: async (k) => {
+    try {
+      const { data } = await sb.from("rcm_store").select("val").eq("k", k).single();
+      return data ? JSON.parse(data.val) : null;
+    } catch { return null; }
+  },
+  set: async (k, v) => {
+    try {
+      const { error } = await sb.from("rcm_store")
+        .upsert({ k, val: JSON.stringify(v), updated_at: new Date().toISOString() }, { onConflict: "k" });
+      return !error;
+    } catch { return false; }
+  }
+};
+
+// ── Constants ─────────────────────────────────────────
+const C = {
+  navy:"#0a1628", amber:"#f59e0b", amberD:"#d97706",
+  green:"#10b981", red:"#ef4444", orange:"#f97316",
+  slate:"#64748b", indigo:"#4f46e5", purple:"#7c3aed", blue:"#2563eb"
+};
+const PROCS   = ["PMB MCO","MCD (Medicaid)","MCR (Medicare)"];
+const MONTHS  = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const ACCESSES= ["Daily Entry","View Own Progress","View Team Progress","Generate Email","Send Feedback","Manage Users","View Reports"];
+
+// ── Style helpers ─────────────────────────────────────
+const inp = { border:"1px solid #d1d5db", borderRadius:8, padding:"9px 12px", fontSize:13, width:"100%", boxSizing:"border-box", outline:"none", fontFamily:"inherit", color:"#1e293b", background:"white" };
+const card = { background:"white", borderRadius:14, boxShadow:"0 2px 16px rgba(0,0,0,0.07)", padding:22 };
+const btn  = (bg, col, ex={}) => ({ border:"none", borderRadius:9, padding:"9px 20px", cursor:"pointer", fontWeight:700, fontSize:13, background:bg, color:col, transition:"all 0.2s", ...ex });
+
+// ── Date helpers ──────────────────────────────────────
+const todayStr = () => new Date().toISOString().split("T")[0];
+const yestStr  = () => { const d=new Date(); d.setDate(d.getDate()-1); return d.toISOString().split("T")[0]; };
+const fmtD     = d => new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"});
+const fmtSh    = d => new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short"});
+const addDays  = (d,n) => { const dt=new Date(d+"T00:00:00"); dt.setDate(dt.getDate()+n); return dt.toISOString().split("T")[0]; };
+const getMon   = d => { const dt=new Date(d+"T00:00:00"),day=dt.getDay(); dt.setDate(dt.getDate()-(day===0?6:day-1)); return dt.toISOString().split("T")[0]; };
+const isWknd   = d => { const w=new Date(d+"T00:00:00").getDay(); return w===0||w===6; };
+const wDays    = s => { const o=[]; let c=s; for(let i=0;i<7;i++){if(!isWknd(c))o.push(c);c=addDays(c,1);} return o; };
+const mDays    = (y,m) => { const o=[]; const last=new Date(y,m,0).getDate(); for(let d=1;d<=last;d++){const s=`${y}-${String(m).padStart(2,"0")}-${String(d).padStart(2,"0")}`;if(!isWknd(s))o.push(s);} return o; };
+const pCol     = v => { const n=parseFloat(v); return isNaN(n)?C.slate:n>=100?C.green:n>=75?C.orange:C.red; };
+const avgArr   = arr => arr.length ? +(arr.reduce((s,v)=>s+parseFloat(v),0)/arr.length).toFixed(1) : null;
+
+// ── CSV ───────────────────────────────────────────────
+const dlCSV = (headers,rows,name) => {
+  const csv=[headers,...rows.map(r=>r.map(c=>`"${String(c??"").replace(/"/g,'""')}"`))].map(r=>r.join(",")).join("\n");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"})); a.download=name; a.click();
+};
+
+// ── SVG Bar Chart (no library needed) ─────────────────
+function BarChartSVG({ data, height=200 }) {
+  if (!data || !data.length) return null;
+  const W = 600, H = height, pad = { top:20, right:20, bottom:30, left:40 };
+  const innerW = W - pad.left - pad.right;
+  const innerH = H - pad.top - pad.bottom;
+  const maxVal = 120;
+  const bw = Math.min(40, innerW / data.length - 8);
+  const gap = innerW / data.length;
+  const yLines = [0,25,50,75,100,120];
+
+  return (
+    <div style={{width:"100%",overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:H}}>
+        {/* Grid lines */}
+        {yLines.map(y => {
+          const yPos = pad.top + innerH - (y/maxVal)*innerH;
+          return (
+            <g key={y}>
+              <line x1={pad.left} y1={yPos} x2={W-pad.right} y2={yPos} stroke={y===100?"#ef4444":"#e2e8f0"} strokeWidth={y===100?1.5:1} strokeDasharray={y===100?"5,3":""}/>
+              <text x={pad.left-5} y={yPos+4} textAnchor="end" fontSize="10" fill="#94a3b8">{y}%</text>
+            </g>
+          );
+        })}
+        {/* 100% label */}
+        <text x={W-pad.right+2} y={pad.top+innerH-(100/maxVal)*innerH+4} fontSize="9" fill="#ef4444">Target</text>
+
+        {/* Bars */}
+        {data.map((d,i) => {
+          const cx = pad.left + gap*i + gap/2;
+          const prodH = ((d.prod||0)/maxVal)*innerH;
+          const qualH = d.qual ? ((d.qual)/maxVal)*innerH : 0;
+          const prodColor = (d.prod||0)>=100?C.green:(d.prod||0)>=75?C.orange:C.red;
+          const bOffset = d.qual ? bw/2+2 : 0;
+          return (
+            <g key={i}>
+              {/* Prod bar */}
+              <rect x={cx-bw/2-bOffset} y={pad.top+innerH-prodH} width={bw} height={prodH} fill={prodColor} rx="4"/>
+              {/* Qual bar */}
+              {d.qual && <rect x={cx+2+bOffset} y={pad.top+innerH-qualH} width={bw} height={qualH} fill={C.purple} opacity="0.7" rx="4"/>}
+              {/* Prod value */}
+              <text x={cx-bOffset} y={pad.top+innerH-prodH-4} textAnchor="middle" fontSize="9" fontWeight="700" fill={prodColor}>{(d.prod||0).toFixed(0)}%</text>
+              {/* Label */}
+              <text x={cx} y={H-pad.bottom+14} textAnchor="middle" fontSize="11" fontWeight="700" fill={C.navy}>{d.name}</text>
+            </g>
+          );
+        })}
+        {/* Legend */}
+        {data.some(d=>d.qual) && (
+          <g>
+            <rect x={pad.left} y={H-12} width={10} height={8} fill={C.purple} opacity="0.7" rx="2"/>
+            <text x={pad.left+13} y={H-5} fontSize="9" fill={C.slate}>Quality %</text>
+          </g>
+        )}
+      </svg>
+    </div>
+  );
+}
+
+// ── SVG Line Chart ─────────────────────────────────────
+function LineChartSVG({ data, height=180 }) {
+  if (!data || data.length < 2) return null;
+  const W=600, H=height, pad={top:20,right:30,bottom:30,left:40};
+  const innerW=W-pad.left-pad.right, innerH=H-pad.top-pad.bottom;
+  const maxVal=120, yLines=[0,25,50,75,100];
+  const validProd = data.filter(d=>d.prod!==null&&d.prod!==undefined);
+  const validQual = data.filter(d=>d.qual!==null&&d.qual!==undefined);
+
+  const xPos = (i) => pad.left + (i/(data.length-1))*innerW;
+  const yPos = (v) => pad.top + innerH - (v/maxVal)*innerH;
+
+  const makePath = (points) => points.map((p,i)=>`${i===0?"M":"L"}${xPos(p.i)},${yPos(p.v)}`).join(" ");
+
+  const prodPoints = data.map((d,i)=>d.prod!=null?{i,v:d.prod}:null).filter(Boolean);
+  const qualPoints = data.map((d,i)=>d.qual!=null?{i,v:d.qual}:null).filter(Boolean);
+
+  return (
+    <div style={{width:"100%",overflowX:"auto"}}>
+      <svg viewBox={`0 0 ${W} ${H}`} style={{width:"100%",height:H}}>
+        {yLines.map(y=>{
+          const yp=yPos(y);
+          return (
+            <g key={y}>
+              <line x1={pad.left} y1={yp} x2={W-pad.right} y2={yp} stroke={y===100?"#ef4444":"#e2e8f0"} strokeWidth={y===100?1.5:1} strokeDasharray={y===100?"5,3":""}/>
+              <text x={pad.left-5} y={yp+4} textAnchor="end" fontSize="10" fill="#94a3b8">{y}%</text>
+            </g>
+          );
+        })}
+        {prodPoints.length>1&&<path d={makePath(prodPoints)} fill="none" stroke={C.amber} strokeWidth="2.5" strokeLinejoin="round"/>}
+        {qualPoints.length>1&&<path d={makePath(qualPoints)} fill="none" stroke={C.purple} strokeWidth="2" strokeLinejoin="round"/>}
+        {prodPoints.map(p=><circle key={p.i} cx={xPos(p.i)} cy={yPos(p.v)} r="3.5" fill={C.amber}/>)}
+        {qualPoints.map(p=><circle key={p.i} cx={xPos(p.i)} cy={yPos(p.v)} r="3" fill={C.purple}/>)}
+        {data.map((d,i)=>(
+          <text key={i} x={xPos(i)} y={H-pad.bottom+14} textAnchor="middle" fontSize="9" fill={C.navy}>{d.date}</text>
+        ))}
+        <g>
+          <rect x={pad.left} y={H-12} width={10} height={5} fill={C.amber} rx="2"/>
+          <text x={pad.left+13} y={H-7} fontSize="9" fill={C.slate}>Productivity</text>
+          {qualPoints.length>0&&<>
+            <rect x={pad.left+80} y={H-12} width={10} height={5} fill={C.purple} opacity="0.8" rx="2"/>
+            <text x={pad.left+93} y={H-7} fontSize="9" fill={C.slate}>Quality</text>
+          </>}
+        </g>
+      </svg>
+    </div>
+  );
+}
+
+// ── Atoms ─────────────────────────────────────────────
+function Pill({label,color}){
+  return <span style={{background:color+"22",color,borderRadius:999,padding:"3px 11px",fontSize:11,fontWeight:700,whiteSpace:"nowrap"}}>{label}</span>;
+}
+function StatCard({label,value,color,sub,icon}){
+  return (
+    <div style={{...card,padding:"16px 18px",flex:1,minWidth:110,borderLeft:`4px solid ${color}`}}>
+      <div style={{display:"flex",alignItems:"flex-start",justifyContent:"space-between"}}>
+        <div>
+          <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>{label}</div>
+          <div style={{fontSize:24,fontWeight:900,color}}>{value??'—'}</div>
+          {sub&&<div style={{fontSize:11,color:C.slate,marginTop:3}}>{sub}</div>}
+        </div>
+        {icon&&<span style={{fontSize:22,opacity:0.6}}>{icon}</span>}
+      </div>
+    </div>
+  );
+}
+function STitle({children,icon}){
+  return <div style={{fontSize:15,fontWeight:800,color:C.navy,marginBottom:14,display:"flex",alignItems:"center",gap:7}}><span>{icon}</span>{children}</div>;
+}
+
+// ── Logo ──────────────────────────────────────────────
+function Logo({size=40}){
+  return (
+    <div style={{display:"flex",alignItems:"center",gap:10}}>
+      <svg width={size} height={size} viewBox="0 0 100 100" fill="none">
+        <polygon points="50,5 90,27 90,73 50,95 10,73 10,27" fill="#1d4ed8" opacity="0.2"/>
+        <polygon points="50,12 84,32 84,68 50,88 16,68 16,32" fill="#2563eb"/>
+        <polygon points="30,42 50,30 50,54 30,66" fill="white" opacity="0.9"/>
+        <polygon points="70,42 50,30 50,54 70,66" fill="white" opacity="0.55"/>
+        <rect x="27" y="55" width="19" height="19" rx="3" fill="#dc2626" transform="rotate(-8,36,64)"/>
+      </svg>
+      <div>
+        <div style={{fontWeight:900,fontSize:size*0.44,color:"white",lineHeight:1}}>3Gen</div>
+        <div style={{fontWeight:700,fontSize:size*0.27,color:"#93c5fd",lineHeight:1.1}}>Consulting</div>
+        {size>=36&&<div style={{fontSize:size*0.17,color:"rgba(255,255,255,0.45)"}}>Powering Healthcare Forward</div>}
+      </div>
+    </div>
+  );
+}
+
+// ── Top Bar ───────────────────────────────────────────
+function TopBar({user,onLogout,tabs,activeTab,setTab}){
+  const rc = user.role==="admin"?C.red:user.role==="manager"?C.blue:C.indigo;
+  const rl = user.role==="admin"?"👑 Admin":user.role==="manager"?"🔷 Manager":"👤 Employee";
+  return (
+    <div style={{background:C.navy,boxShadow:"0 2px 12px rgba(0,0,0,0.3)",position:"sticky",top:0,zIndex:100}}>
+      <div style={{maxWidth:1280,margin:"0 auto",padding:"0 20px"}}>
+        <div style={{display:"flex",alignItems:"center",gap:16,padding:"10px 0",borderBottom:"1px solid rgba(255,255,255,0.08)",flexWrap:"wrap"}}>
+          <Logo size={34}/>
+          <div style={{flex:1}}/>
+          <div style={{display:"flex",alignItems:"center",gap:10,background:"rgba(255,255,255,0.07)",borderRadius:10,padding:"7px 14px"}}>
+            <div style={{width:34,height:34,borderRadius:"50%",background:`linear-gradient(135deg,${rc},${rc}88)`,display:"flex",alignItems:"center",justifyContent:"center",fontWeight:800,fontSize:14,color:"white",flexShrink:0}}>
+              {user.name.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <div style={{color:"white",fontWeight:700,fontSize:13}}>{user.name}</div>
+              <div style={{color:C.amber,fontSize:10,fontWeight:600}}>{user.empId} · <span style={{color:rc+"cc"}}>{rl}</span></div>
+            </div>
+          </div>
+          <button onClick={onLogout} style={btn("rgba(239,68,68,0.15)",C.red,{padding:"6px 14px",fontSize:12,border:"1px solid rgba(239,68,68,0.25)"})}>Sign Out</button>
+        </div>
+        <div style={{display:"flex",gap:2,padding:"6px 0",overflowX:"auto"}}>
+          {tabs.map(({id,label})=>(
+            <button key={id} onClick={()=>setTab(id)} style={{background:activeTab===id?C.amber:"transparent",color:activeTab===id?C.navy:"rgba(255,255,255,0.65)",border:"none",borderRadius:8,padding:"7px 16px",fontSize:12,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}}>
+              {label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  LOGIN                                           ║
+// ╚══════════════════════════════════════════════════╝
+function LoginScreen({onLogin}){
+  const [empId,setEmpId]=useState(""); const [pass,setPass]=useState("");
+  const [err,setErr]=useState(""); const [loading,setLoading]=useState(false);
+  const [mode,setMode]=useState("login");
+  const [fgId,setFgId]=useState(""); const [fgReason,setFgReason]=useState(""); const [fgDone,setFgDone]=useState(false);
+
+  const login=async()=>{
+    if(!empId.trim()||!pass.trim()){setErr("Enter your ID and password.");return;}
+    setLoading(true);setErr("");
+    let users=await S.get("rcm:users");
+    if(!users||!users.length){
+      users=[{empId:"ADMIN",name:"Team Lead Admin",password:"Admin@123",process:"All",role:"admin",access:ACCESSES,active:true}];
+      await S.set("rcm:users",users);
+    }
+    const u=users.find(x=>x.empId.toLowerCase()===empId.trim().toLowerCase()&&x.password===pass.trim()&&x.active!==false);
+    if(u)onLogin(u); else setErr("Invalid ID or password, or account is disabled.");
+    setLoading(false);
+  };
+
+  const sendForgot=async()=>{
+    if(!fgId.trim()){setErr("Enter your Employee ID.");return;}
+    const reqs=await S.get("rcm:pwreset")||[];
+    reqs.push({empId:fgId.trim().toUpperCase(),reason:fgReason,requestedAt:new Date().toISOString(),status:"pending"});
+    await S.set("rcm:pwreset",reqs);
+    setFgDone(true);
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:`linear-gradient(135deg,${C.navy} 0%,#1a3a6e 100%)`,display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:20}}>
+      <div style={{marginBottom:28}}><Logo size={52}/></div>
+      <div style={{background:"white",borderRadius:20,padding:"36px 32px",width:"100%",maxWidth:420,boxShadow:"0 24px 80px rgba(0,0,0,0.35)"}}>
+        {mode==="login"&&<>
+          <div style={{textAlign:"center",marginBottom:24}}>
+            <div style={{fontSize:20,fontWeight:900,color:C.navy}}>Team Performance Portal</div>
+            <div style={{fontSize:12,color:C.slate,marginTop:4}}>Sign in with your Employee ID & Password</div>
+          </div>
+          {[{l:"Employee ID",v:empId,s:setEmpId,ph:"e.g. ADMIN",t:"text"},{l:"Password",v:pass,s:setPass,ph:"Enter password",t:"password"}].map(({l,v,s,ph,t})=>(
+            <div key={l} style={{marginBottom:14}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>{l}</div>
+              <input type={t} value={v} placeholder={ph} onChange={e=>s(e.target.value)} onKeyDown={e=>e.key==="Enter"&&login()} style={{...inp,padding:"11px 13px",fontSize:14}}/>
+            </div>
+          ))}
+          {err&&<div style={{background:"#fee2e2",color:C.red,borderRadius:8,padding:"8px 12px",fontSize:13,marginBottom:12}}>⚠ {err}</div>}
+          <button onClick={login} disabled={loading} style={btn(`linear-gradient(135deg,${C.amber},${C.amberD})`,C.navy,{width:"100%",padding:"13px",fontSize:15,borderRadius:10,marginBottom:12,boxShadow:`0 4px 20px ${C.amber}44`})}>
+            {loading?"Signing in…":"Sign In →"}
+          </button>
+          <button onClick={()=>{setMode("forgot");setErr("");}} style={{background:"none",border:"none",color:C.blue,fontSize:13,cursor:"pointer",width:"100%",textAlign:"center",fontWeight:600}}>Forgot Password?</button>
+          <div style={{textAlign:"center",marginTop:14,color:C.slate,fontSize:11,borderTop:"1px solid #f1f5f9",paddingTop:12}}>Default Admin: <strong>ADMIN</strong> / <strong>Admin@123</strong></div>
+        </>}
+        {mode==="forgot"&&!fgDone&&<>
+          <div style={{textAlign:"center",marginBottom:20}}>
+            <div style={{fontSize:18,fontWeight:800,color:C.navy}}>🔐 Reset Password Request</div>
+            <div style={{fontSize:12,color:C.slate,marginTop:4}}>Admin will be notified and reset your password</div>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Your Employee ID *</div>
+            <input value={fgId} onChange={e=>setFgId(e.target.value)} placeholder="e.g. EMP001" style={inp}/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Reason (optional)</div>
+            <input value={fgReason} onChange={e=>setFgReason(e.target.value)} placeholder="e.g. Forgot password" style={inp}/>
+          </div>
+          {err&&<div style={{background:"#fee2e2",color:C.red,borderRadius:8,padding:"8px 12px",fontSize:13,marginBottom:12}}>⚠ {err}</div>}
+          <button onClick={sendForgot} style={btn(`linear-gradient(135deg,${C.blue},#1d4ed8)`,"white",{width:"100%",padding:"12px",borderRadius:10,marginBottom:10})}>Send Reset Request</button>
+          <button onClick={()=>setMode("login")} style={{background:"none",border:"none",color:C.slate,fontSize:13,cursor:"pointer",width:"100%",textAlign:"center"}}>← Back to Login</button>
+        </>}
+        {mode==="forgot"&&fgDone&&(
+          <div style={{textAlign:"center",padding:"20px 0"}}>
+            <div style={{fontSize:40,marginBottom:12}}>✅</div>
+            <div style={{fontSize:16,fontWeight:800,color:C.navy,marginBottom:8}}>Request Sent!</div>
+            <div style={{fontSize:13,color:C.slate,marginBottom:20}}>Admin has been notified and will reset your password shortly.</div>
+            <button onClick={()=>{setMode("login");setFgDone(false);setFgId("");}} style={btn(C.navy,"white",{padding:"10px 24px",borderRadius:9})}>← Back to Login</button>
+          </div>
+        )}
+      </div>
+      <div style={{color:"rgba(255,255,255,0.3)",fontSize:11,marginTop:20}}>© 3Gen Consulting · Home Health RCM Portal</div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  TEAM MANAGEMENT                                 ║
+// ╚══════════════════════════════════════════════════╝
+function TeamMgmt({adminUser}){
+  const [users,setUsers]=useState([]);
+  const [pwReqs,setPwReqs]=useState([]);
+  const [form,setForm]=useState({empId:"",name:"",password:"",process:PROCS[0],role:"employee",access:["Daily Entry","View Own Progress"]});
+  const [msg,setMsg]=useState("");
+
+  const load=useCallback(async()=>{
+    setUsers(await S.get("rcm:users")||[]);
+    setPwReqs((await S.get("rcm:pwreset")||[]).filter(r=>r.status==="pending"));
+  },[]);
+  useEffect(()=>{load();},[load]);
+
+  const saveU=async l=>{await S.set("rcm:users",l);setUsers(l);};
+  const toggleAcc=opt=>setForm(f=>({...f,access:f.access.includes(opt)?f.access.filter(a=>a!==opt):[...f.access,opt]}));
+
+  const addUser=async()=>{
+    if(!form.empId.trim()||!form.name.trim()||!form.password.trim()){setMsg("⚠ All fields required.");return;}
+    if(users.find(u=>u.empId.toLowerCase()===form.empId.toLowerCase())){setMsg("⚠ Employee ID already exists.");return;}
+    await saveU([...users,{...form,empId:form.empId.trim().toUpperCase(),active:true}]);
+    setForm({empId:"",name:"",password:"",process:PROCS[0],role:"employee",access:["Daily Entry","View Own Progress"]});
+    setMsg("✅ User created!"); setTimeout(()=>setMsg(""),3000);
+  };
+
+  const savePw=async id=>{
+    const el=document.getElementById("pw_"+id);
+    if(!el?.value.trim()){setMsg("⚠ Enter a password first.");return;}
+    await saveU(users.map(u=>u.empId===id?{...u,password:el.value.trim()}:u));
+    el.value=""; setMsg("✅ Password updated!"); setTimeout(()=>setMsg(""),3000);
+  };
+
+  const toggleActive=async id=>saveU(users.map(u=>u.empId===id?{...u,active:!u.active}:u));
+
+  const approvePR=async req=>{
+    const el=document.getElementById("pr_"+req.empId);
+    if(!el?.value.trim()){setMsg("⚠ Enter a new password first.");return;}
+    await saveU(users.map(u=>u.empId===req.empId?{...u,password:el.value.trim()}:u));
+    const all=await S.get("rcm:pwreset")||[];
+    await S.set("rcm:pwreset",all.map(r=>r.empId===req.empId&&r.requestedAt===req.requestedAt?{...r,status:"resolved"}:r));
+    setPwReqs(p=>p.filter(r=>!(r.empId===req.empId&&r.requestedAt===req.requestedAt)));
+    setMsg("✅ Password reset approved!"); setTimeout(()=>setMsg(""),3000);
+  };
+
+  return (
+    <div className="fade">
+      {pwReqs.length>0&&(
+        <div style={{background:"#fff7ed",border:`2px solid ${C.orange}44`,borderRadius:14,padding:20,marginBottom:20}}>
+          <STitle icon="🔔">Password Reset Requests ({pwReqs.length})</STitle>
+          {pwReqs.map((r,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:10,background:"white",borderRadius:10,padding:"12px 14px",marginBottom:8,border:"1px solid #fed7aa",flexWrap:"wrap"}}>
+              <div style={{flex:1}}>
+                <div style={{fontWeight:800,color:C.navy}}>{r.empId}</div>
+                <div style={{fontSize:11,color:C.slate}}>{r.reason||"No reason"} · {new Date(r.requestedAt).toLocaleString("en-IN")}</div>
+              </div>
+              <input id={"pr_"+r.empId} placeholder="Set new password" style={{...inp,width:180}}/>
+              <button onClick={()=>approvePR(r)} style={btn(C.green,"white",{padding:"8px 14px",fontSize:12})}>✅ Approve</button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      <div style={{...card,marginBottom:20}}>
+        <STitle icon="➕">Create New User Account</STitle>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:12,marginBottom:14}}>
+          {[{l:"Employee ID",k:"empId",ph:"EMP001"},{l:"Full Name",k:"name",ph:"Agent Name"},{l:"Password",k:"password",ph:"Set password"}].map(({l,k,ph})=>(
+            <div key={k}>
+              <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>{l}</div>
+              <input value={form[k]} placeholder={ph} onChange={e=>setForm({...form,[k]:e.target.value})} style={inp}/>
+            </div>
+          ))}
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Process</div>
+            <select value={form.process} onChange={e=>setForm({...form,process:e.target.value})} style={inp}>
+              {PROCS.map(p=><option key={p}>{p}</option>)}
+              <option value="All">All Processes</option>
+            </select>
+          </div>
+          <div>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:4}}>Role</div>
+            <select value={form.role} onChange={e=>{
+              const r=e.target.value;
+              const def=r==="admin"?ACCESSES:r==="manager"?["View Team Progress","Generate Email","Send Feedback","View Reports","View Own Progress"]:["Daily Entry","View Own Progress"];
+              setForm(f=>({...f,role:r,access:def}));
+            }} style={{...inp,borderColor:form.role==="admin"?C.red:form.role==="manager"?C.blue:C.indigo}}>
+              <option value="employee">👤 Employee</option>
+              <option value="manager">🔷 Manager</option>
+              <option value="admin">👑 Admin</option>
+            </select>
+          </div>
+        </div>
+        <div style={{marginBottom:16}}>
+          <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:8}}>Access Permissions</div>
+          <div style={{display:"flex",flexWrap:"wrap",gap:8}}>
+            {ACCESSES.map(opt=>(
+              <label key={opt} style={{display:"flex",alignItems:"center",gap:6,background:form.access.includes(opt)?"#e0e7ff":"#f8fafc",border:`1.5px solid ${form.access.includes(opt)?C.indigo:"#e2e8f0"}`,borderRadius:20,padding:"5px 13px",cursor:"pointer",fontSize:12,fontWeight:600,color:form.access.includes(opt)?C.indigo:C.slate}}>
+                <input type="checkbox" checked={form.access.includes(opt)} onChange={()=>toggleAcc(opt)} style={{display:"none"}}/>
+                {form.access.includes(opt)?"✓ ":""}{opt}
+              </label>
+            ))}
+          </div>
+        </div>
+        {msg&&<div style={{fontSize:13,color:msg.startsWith("✅")?C.green:C.red,fontWeight:600,marginBottom:10}}>{msg}</div>}
+        <button onClick={addUser} style={btn(`linear-gradient(135deg,${C.amber},${C.amberD})`,C.navy,{padding:"11px 28px",fontSize:14})}>Create User Account</button>
+      </div>
+
+      <div style={{...card,padding:0,overflow:"hidden"}}>
+        <div style={{padding:"14px 20px",background:C.navy}}><span style={{color:"white",fontWeight:800,fontSize:14}}>👥 All Users ({users.length})</span></div>
+        <div style={{overflowX:"auto"}}>
+          <table>
+            <thead><tr style={{background:"#f8fafc"}}>
+              {["Emp ID","Name","Role","Process","Status","Reset Password","Actions"].map(h=><th key={h} style={{padding:"10px 14px",textAlign:"left",color:C.slate,fontSize:10,fontWeight:700,borderBottom:"1px solid #e2e8f0"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {users.map((u,i)=>(
+                <tr key={u.empId} style={{background:i%2===0?"white":"#fafbff",borderBottom:"1px solid #f1f5f9",opacity:u.active===false?0.5:1}}>
+                  <td style={{padding:"10px 14px",fontWeight:800,color:C.navy,fontFamily:"monospace"}}>{u.empId}</td>
+                  <td style={{padding:"10px 14px",fontWeight:600}}>{u.name}</td>
+                  <td style={{padding:"10px 14px"}}><Pill label={u.role==="admin"?"👑 Admin":u.role==="manager"?"🔷 Manager":"👤 Employee"} color={u.role==="admin"?C.red:u.role==="manager"?C.blue:C.indigo}/></td>
+                  <td style={{padding:"10px 14px",color:C.slate,fontSize:12}}>{u.process}</td>
+                  <td style={{padding:"10px 14px"}}><Pill label={u.active!==false?"🟢 Active":"🔴 Disabled"} color={u.active!==false?C.green:C.red}/></td>
+                  <td style={{padding:"10px 14px"}}>
+                    <div style={{display:"flex",gap:6,alignItems:"center"}}>
+                      <input id={"pw_"+u.empId} placeholder="New password" style={{...inp,width:140,fontSize:12,padding:"5px 9px"}}/>
+                      <button onClick={()=>savePw(u.empId)} style={btn("#e0e7ff",C.indigo,{padding:"5px 10px",fontSize:11})}>💾</button>
+                    </div>
+                  </td>
+                  <td style={{padding:"10px 14px"}}>
+                    {u.empId!==adminUser.empId&&<button onClick={()=>toggleActive(u.empId)} style={btn(u.active!==false?"#fee2e2":"#d1fae5",u.active!==false?C.red:C.green,{padding:"5px 12px",fontSize:11})}>{u.active!==false?"Disable":"Enable"}</button>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  TODAY STATUS                                    ║
+// ╚══════════════════════════════════════════════════╝
+function TodayStatus({user}){
+  const [date,setDate]=useState(todayStr());
+  const [members,setMembers]=useState([]);
+  const [dayData,setDayData]=useState({});
+  const [email,setEmail]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [copied,setCopied]=useState(false);
+  const [ctx,setCtx]=useState("");
+
+  const load=useCallback(async()=>{
+    const u=await S.get("rcm:users")||[];
+    setMembers(u.filter(x=>x.role==="employee"&&x.active!==false));
+    setDayData(await S.get(`rcm:day:${date}`)||{});
+  },[date]);
+  useEffect(()=>{load();},[load]);
+
+  const agents=Object.values(dayData).filter(a=>a&&a.name);
+  const activeA=agents.filter(a=>!a.onLeave&&a.prodPct);
+  const qualA=agents.filter(a=>a.qualScore);
+  const subs=members.filter(u=>dayData[u.empId]);
+  const pending=members.filter(u=>!dayData[u.empId]);
+  const allDone=pending.length===0&&members.length>0;
+  const chartData=agents.filter(a=>a.prodPct).map(a=>({name:a.name.split(" ")[0],prod:parseFloat(a.prodPct)||0,qual:a.qualScore?parseFloat(a.qualScore):undefined}));
+
+  const genEmail=async()=>{
+    if(!agents.length)return;
+    setLoading(true);setEmail("");
+    const text=agents.map(a=>`• ${a.name}(${a.empId})|${a.process}${a.onLeave?" LEAVE":""} Total:${a.total||"N/A"} Target:${a.target||"N/A"} Prod:${a.prodPct?a.prodPct+"%":"N/A"}${a.downtime?` DT:${a.downtime}h`:""}${a.qualScore?` Qual:${a.qualScore}%`:""}${a.reason?` REASON:${a.reason}`:""}${a.notes?` ACTION:${a.notes}`:""}`).join("\n");
+    const avgQ=qualA.length?avgArr(qualA.map(a=>parseFloat(a.qualScore))):null;
+    const prompt=`You are Home Health RCM Team Lead at 3Gen Consulting. Write an ultra-professional daily productivity summary email to manager Ketan Sir for ${fmtD(date)}.
+TEAM DATA:\n${text}\n${ctx?`CONTEXT: ${ctx}`:""}${avgQ?`\nTEAM AVG QUALITY: ${avgQ}%`:""}
+Write (plain text, ═══ section dividers, ○ bullets, NO markdown):
+Hi Ketan Sir,
+[Professional intro: date, number of agents, processes covered]
+[Per PROCESS with agents:]
+══════════════════════════════
+[PROCESS NAME] — ${fmtD(date)}
+══════════════════════════════
+🏆 Top Performer:
+• [Name] — [prod%] Productivity
+  Key Highlights:
+  ○ [specific RCM highlight: BBHT, denial EOBs, complex claims, NOA, AR calling]
+  ○ [second highlight]
+  Team Impact:
+  ○ [contribution line]
+⚠ Needs Attention:
+• [lowest prod% Name] — [prod%] Productivity (Target: [target])
+  Root Cause:
+  ○ [Use REASON if given. Else: TAT, VDI/DDE issues, physician tasks]
+  Action Plan:
+  ○ [specific recovery plan with timeline]
+[Other agents: 1 line each]
+${avgQ?`📊 Quality Scorecard:\n• Team Average: ${avgQ}%`:""}
+Please let me know if you need any additional details or clarifications.
+Regards,
+${user.name}
+Home Health RCM Team Lead | 3Gen Consulting`;
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
+      const d=await r.json(); setEmail(d.content?.map(b=>b.text||"").join("")||"");
+    }catch{setEmail("Failed to generate. Please try again.");}
+    setLoading(false);
+  };
+
+  const exportDay=()=>{
+    dlCSV(["EmpID","Name","Process","Date","Total","Target","Prod%","Quality%","Downtime","OnLeave","Reason","ActionPlan"],
+      agents.map(a=>[a.empId,a.name,a.process,date,a.total||"",a.target||"",a.prodPct||"",a.qualScore||"",a.downtime||"",a.onLeave?"Yes":"No",a.reason||"",a.notes||""]),
+      `RCM_Daily_${date}.csv`);
+  };
+
+  return (
+    <div className="fade">
+      <div style={{display:"flex",gap:12,marginBottom:20,alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{...card,padding:"10px 14px",display:"flex",alignItems:"center",gap:10}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.slate}}>DATE</span>
+          <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={{...inp,width:"auto",border:"none",background:"transparent",fontWeight:700,color:C.navy,padding:"2px 6px"}}/>
+          <button onClick={load} style={btn("#eef2ff",C.indigo,{padding:"5px 12px",fontSize:11})}>↺</button>
+        </div>
+        <input value={ctx} onChange={e=>setCtx(e.target.value)} placeholder="Team-wide context (DDE downtime, VDI issues…)" style={{...inp,maxWidth:320}}/>
+        <button onClick={exportDay} style={btn("#f0fdf4",C.green,{padding:"9px 14px",fontSize:12})}>📥 Export CSV</button>
+      </div>
+
+      <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+        <StatCard label="Team Size"    value={members.length}                    color={C.indigo}  icon="👥"/>
+        <StatCard label="Submitted"    value={`${subs.length}/${members.length}`} color={allDone?C.green:C.orange} icon="✅" sub={allDone?"All done!":""}/>
+        <StatCard label="Pending"      value={pending.length}                    color={pending.length>0?C.red:C.green} icon="⏳"/>
+        <StatCard label="Avg Prod"     value={activeA.length?avgArr(activeA.map(a=>parseFloat(a.prodPct)))+"%":"—"} color={C.amber} icon="📊"/>
+        <StatCard label="Avg Quality"  value={qualA.length?avgArr(qualA.map(a=>parseFloat(a.qualScore)))+"%":"—"}   color={C.purple} icon="⭐"/>
+      </div>
+
+      {chartData.length>0&&(
+        <div style={{...card,marginBottom:18}}>
+          <STitle icon="📊">Team Productivity Chart — {fmtD(date)}</STitle>
+          <BarChartSVG data={chartData}/>
+        </div>
+      )}
+
+      <div style={{...card,padding:0,overflow:"hidden",marginBottom:18}}>
+        <div style={{background:C.navy,padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+          <span style={{color:"white",fontWeight:800,fontSize:14}}>📋 Submission Tracker — {fmtD(date)}</span>
+          <Pill label={`${subs.length}/${members.length} Submitted`} color={allDone?C.green:C.amber}/>
+        </div>
+        <div style={{overflowX:"auto"}}>
+          <table>
+            <thead><tr style={{background:"#f8fafc"}}>
+              {["Employee","Process","Status","Total","Target","Prod %","Quality","DT(h)","Leave","Reason","Time"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.slate,fontSize:10,fontWeight:700,borderBottom:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>{h}</th>)}
+            </tr></thead>
+            <tbody>
+              {members.map((u,i)=>{
+                const d=dayData[u.empId];const pc=d?pCol(d.prodPct):C.slate;
+                return (
+                  <tr key={u.empId} style={{background:i%2===0?"white":"#fafbff",borderBottom:"1px solid #f1f5f9"}}>
+                    <td style={{padding:"10px 12px"}}>
+                      <div style={{fontWeight:700,color:C.navy}}>{u.name}</div>
+                      <div style={{fontSize:10,color:C.slate,fontFamily:"monospace"}}>{u.empId}</div>
+                    </td>
+                    <td style={{padding:"10px 12px",color:C.slate,fontSize:12}}>{u.process}</td>
+                    <td style={{padding:"10px 12px"}}>{d?<Pill label="✅ Done" color={C.green}/>:<Pill label="⏳ Pending" color={C.orange}/>}</td>
+                    <td style={{padding:"10px 12px",fontWeight:600}}>{d?.total||"—"}</td>
+                    <td style={{padding:"10px 12px",color:C.slate}}>{d?.target||"—"}</td>
+                    <td style={{padding:"10px 12px",fontWeight:900,color:pc,fontSize:15}}>{d?.prodPct?d.prodPct+"%":"—"}</td>
+                    <td style={{padding:"10px 12px",fontWeight:700,color:d?.qualScore?pCol(d.qualScore):C.slate}}>{d?.qualScore?d.qualScore+"%":"—"}</td>
+                    <td style={{padding:"10px 12px",color:C.slate}}>{d?.downtime||"—"}</td>
+                    <td style={{padding:"10px 12px"}}>{d?.onLeave?<Pill label="Leave" color={C.orange}/>:"—"}</td>
+                    <td style={{padding:"10px 12px",color:C.slate,fontSize:11,maxWidth:160}}>{d?.reason?d.reason.slice(0,40)+(d.reason.length>40?"…":""):"—"}</td>
+                    <td style={{padding:"10px 12px",color:C.slate,fontSize:11,whiteSpace:"nowrap"}}>{d?.submittedAt?new Date(d.submittedAt).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"}):"—"}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <button onClick={genEmail} disabled={loading||!agents.length}
+        style={btn(agents.length?`linear-gradient(135deg,${C.amber},${C.amberD})`:"#e2e8f0",agents.length?C.navy:C.slate,{width:"100%",padding:"14px",fontSize:15,borderRadius:12,marginBottom:16})}>
+        {loading?"⏳ AI is drafting email…":allDone?"✨ Generate Professional Email":"✨ Generate Email (Partial Data)"}
+      </button>
+
+      {email&&(
+        <div style={{...card,padding:0,overflow:"hidden"}}>
+          <div style={{background:C.navy,padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+            <div style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>To: Ketan Sir · Subject: Team Productivity Summary – {fmtD(date)}</div>
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>{navigator.clipboard.writeText(email);setCopied(true);setTimeout(()=>setCopied(false),2500);}} style={btn(copied?"rgba(16,185,129,0.3)":C.amber,copied?"#6ee7b7":C.navy,{padding:"6px 16px",fontSize:12})}>
+                {copied?"✅ Copied!":"📋 Copy Email"}
+              </button>
+              <button onClick={()=>{window.location.href=`mailto:?subject=${encodeURIComponent("Team Productivity Summary – "+fmtD(date))}&body=${encodeURIComponent(email)}`;}} style={btn("rgba(99,102,241,0.2)","#a5b4fc",{padding:"6px 16px",fontSize:12,border:"1px solid rgba(99,102,241,0.3)"})}>📧 Outlook</button>
+            </div>
+          </div>
+          <div style={{padding:"24px 28px",whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.9,color:"#1e293b",fontFamily:"Calibri,Segoe UI,sans-serif"}}>{email}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  SUMMARY DASHBOARD                               ║
+// ╚══════════════════════════════════════════════════╝
+function SummaryDash({type,user}){
+  const now=new Date();
+  const [year,setYear]=useState(now.getFullYear());
+  const [month,setMonth]=useState(now.getMonth()+1);
+  const [wStart,setWStart]=useState(getMon(todayStr()));
+  const [records,setRecords]=useState([]);
+  const [agStats,setAgStats]=useState([]);
+  const [selUser,setSelUser]=useState("ALL");
+  const [email,setEmail]=useState("");
+  const [loading,setLoading]=useState(false);
+  const [copied,setCopied]=useState(false);
+
+  const dates=type==="weekly"?wDays(wStart):mDays(year,month);
+  const periodLabel=type==="weekly"?`${fmtD(wStart)} – ${fmtD(addDays(wStart,4))}`:`${MONTHS[month-1]} ${year}`;
+
+  const load=useCallback(async()=>{
+    const recs=(await Promise.all(dates.map(d=>S.get(`rcm:day:${d}`).then(r=>r?{date:d,...r}:null)))).filter(Boolean);
+    setRecords(recs);
+    const map={};
+    for(const rec of recs){
+      for(const[k,sub] of Object.entries(rec)){
+        if(k==="date"||!sub?.name)continue;
+        const id=sub.empId||sub.name;
+        if(!map[id])map[id]={name:sub.name,empId:sub.empId,process:sub.process,prods:[],quals:[],totals:[],dates:[]};
+        if(!sub.onLeave&&sub.prodPct)map[id].prods.push(parseFloat(sub.prodPct));
+        if(sub.qualScore)map[id].quals.push(parseFloat(sub.qualScore));
+        if(sub.total)map[id].totals.push(parseInt(sub.total)||0);
+        map[id].dates.push(rec.date);
+      }
+    }
+    const stats=Object.values(map).map(a=>({...a,avgProd:avgArr(a.prods)||0,avgQual:avgArr(a.quals)||0,totalClaims:a.totals.reduce((s,v)=>s+v,0),daysWorked:a.prods.length,above100:a.prods.filter(p=>p>=100).length,below75:a.prods.filter(p=>p<75).length})).sort((a,b)=>b.avgProd-a.avgProd);
+    setAgStats(stats);setEmail("");
+  },[wStart,year,month,type]);
+  useEffect(()=>{load();},[load]);
+
+  const fStats=selUser==="ALL"?agStats:agStats.filter(a=>a.empId===selUser||a.name===selUser);
+  const trendData=records.map(rec=>{
+    const subs=Object.entries(rec).filter(([k,v])=>k!=="date"&&v?.prodPct&&!v.onLeave&&(selUser==="ALL"||v.empId===selUser||v.name===selUser));
+    const quals=subs.filter(([,v])=>v.qualScore);
+    return{date:fmtSh(rec.date),prod:subs.length?avgArr(subs.map(([,v])=>parseFloat(v.prodPct))):null,qual:quals.length?avgArr(quals.map(([,v])=>parseFloat(v.qualScore))):null};
+  });
+
+  const teamAvgProd=avgArr(fStats.map(a=>a.avgProd));
+  const teamAvgQual=avgArr(fStats.filter(a=>a.avgQual>0).map(a=>a.avgQual));
+  const totalClaims=fStats.reduce((s,a)=>s+a.totalClaims,0);
+
+  const exportCSV=()=>{
+    const rows=[];
+    for(const rec of records)for(const[k,s] of Object.entries(rec)){
+      if(k==="date"||!s?.name)continue;
+      if(selUser!=="ALL"&&s.empId!==selUser&&s.name!==selUser)continue;
+      rows.push([s.empId,s.name,s.process,rec.date,s.total||"",s.target||"",s.prodPct||"",s.qualScore||"",s.downtime||"",s.onLeave?"Yes":"No",s.reason||"",s.notes||""]);
+    }
+    dlCSV(["EmpID","Name","Process","Date","Total","Target","Prod%","Quality%","Downtime","OnLeave","Reason","ActionPlan"],rows,`RCM_${type}_${periodLabel.replace(/[^a-z0-9]/gi,"_")}.csv`);
+  };
+
+  const genEmail=async()=>{
+    if(!agStats.length)return;
+    setLoading(true);setEmail("");
+    const txt=agStats.map(a=>`• ${a.name}(${a.empId})|${a.process}|AvgProd:${a.avgProd}%|Days:${a.daysWorked}|≥100:${a.above100}|<75:${a.below75}|Claims:${a.totalClaims}${a.avgQual?`|AvgQual:${a.avgQual}%`:""}`).join("\n");
+    const prompt=`You are Home Health RCM Team Lead at 3Gen Consulting. Write a professional ${type} productivity summary for ${periodLabel} to manager Ketan Sir.
+DATA:\n${txt}\nTeamAvgProd:${teamAvgProd}%${teamAvgQual?` TeamAvgQual:${teamAvgQual}%`:""}
+Format: Hi Ketan Sir, [Intro] | ══ TEAM PERFORMANCE OVERVIEW ══ | ══ TOP PERFORMERS ══ | ══ AREAS NEEDING ATTENTION ══ | ══ SYSTEM & ATTENDANCE IMPACT ══ | ══ PLAN FOR ${type==="weekly"?"NEXT WEEK":"NEXT MONTH"} ══ | Regards, ${user.name} | Home Health RCM Team Lead | 3Gen Consulting
+Plain text. ○ bullets. RCM terms: BBHT,TAT,DDE,VDI,NOA,denial EOBs,CCA,OASIS.`;
+    try{
+      const r=await fetch("https://api.anthropic.com/v1/messages",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-sonnet-4-20250514",max_tokens:1000,messages:[{role:"user",content:prompt}]})});
+      const d=await r.json();setEmail(d.content?.map(b=>b.text||"").join("")||"");
+    }catch{setEmail("Failed. Try again.");}
+    setLoading(false);
+  };
+
+  return (
+    <div className="fade">
+      <div style={{...card,marginBottom:18,display:"flex",alignItems:"center",gap:14,flexWrap:"wrap"}}>
+        {type==="weekly"?(
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>setWStart(addDays(wStart,-7))} style={btn("#f1f5f9",C.navy,{padding:"7px 13px"})}>←</button>
+            <span style={{fontWeight:700,color:C.navy,fontSize:13,minWidth:230,textAlign:"center"}}>{fmtD(wStart)} – {fmtD(addDays(wStart,4))}</span>
+            <button onClick={()=>setWStart(addDays(wStart,7))} style={btn("#f1f5f9",C.navy,{padding:"7px 13px"})}>→</button>
+          </div>
+        ):(
+          <div style={{display:"flex",alignItems:"center",gap:8}}>
+            <button onClick={()=>{if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={btn("#f1f5f9",C.navy,{padding:"7px 13px"})}>←</button>
+            <span style={{fontWeight:700,color:C.navy,fontSize:14,minWidth:130,textAlign:"center"}}>{MONTHS[month-1]} {year}</span>
+            <button onClick={()=>{if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={btn("#f1f5f9",C.navy,{padding:"7px 13px"})}>→</button>
+          </div>
+        )}
+        <div style={{display:"flex",alignItems:"center",gap:8}}>
+          <span style={{fontSize:11,fontWeight:700,color:C.slate,whiteSpace:"nowrap"}}>🔍 Agent:</span>
+          <select value={selUser} onChange={e=>setSelUser(e.target.value)} style={{...inp,width:"auto",minWidth:180}}>
+            <option value="ALL">All Agents</option>
+            {agStats.map(a=><option key={a.empId||a.name} value={a.empId||a.name}>{a.name} ({a.empId})</option>)}
+          </select>
+        </div>
+        <button onClick={load}      style={btn("#eef2ff",C.indigo,{padding:"8px 14px",fontSize:12})}>↺ Refresh</button>
+        <button onClick={exportCSV} style={btn("#f0fdf4",C.green, {padding:"8px 14px",fontSize:12})}>📥 Export CSV</button>
+      </div>
+
+      {records.length===0?(
+        <div style={{...card,textAlign:"center",padding:"60px 20px",color:C.slate}}>
+          <div style={{fontSize:44,marginBottom:14}}>📭</div>
+          <div style={{fontSize:16,fontWeight:700,color:C.navy}}>No data for this {type==="weekly"?"week":"month"}</div>
+          <div style={{fontSize:13,marginTop:8}}>Data appears once employees submit their daily entries</div>
+        </div>
+      ):(
+        <>
+          <div style={{display:"flex",gap:12,marginBottom:18,flexWrap:"wrap"}}>
+            <StatCard label="Days with Data"   value={`${records.length}/${dates.length}`} color={records.length===dates.length?C.green:C.orange} icon="📅"/>
+            <StatCard label="Agents"           value={fStats.length}                       color={C.indigo}  icon="👥"/>
+            <StatCard label="Avg Productivity" value={teamAvgProd?teamAvgProd+"%":"—"}     color={pCol(teamAvgProd)} icon="📊"/>
+            <StatCard label="Avg Quality"      value={teamAvgQual?teamAvgQual+"%":"—"}     color={C.purple}  icon="⭐"/>
+            <StatCard label="Total Claims"     value={totalClaims}                         color={C.blue}    icon="📁"/>
+          </div>
+
+          <div style={{display:"grid",gridTemplateColumns:"1.4fr 1fr",gap:16,marginBottom:18}}>
+            <div style={card}>
+              <STitle icon="📈">Daily Trend — Productivity & Quality</STitle>
+              <LineChartSVG data={trendData}/>
+            </div>
+            <div style={card}>
+              <STitle icon="📊">Agent Avg Productivity</STitle>
+              <BarChartSVG data={fStats.map(a=>({name:a.name.split(" ")[0],prod:a.avgProd,qual:a.avgQual||undefined}))} height={190}/>
+            </div>
+          </div>
+
+          <div style={{...card,padding:0,overflow:"hidden",marginBottom:18}}>
+            <div style={{background:C.navy,padding:"12px 18px"}}><span style={{color:"white",fontWeight:800,fontSize:14}}>👥 Performance Summary — {periodLabel}</span></div>
+            <div style={{overflowX:"auto"}}>
+              <table>
+                <thead><tr style={{background:"#f8fafc"}}>
+                  {["Rank","Agent","Process","Days","Avg Prod","≥100","<75","Claims","Avg Qual"].map(h=><th key={h} style={{padding:"9px 12px",textAlign:"left",color:C.slate,fontSize:10,fontWeight:700,borderBottom:"1px solid #e2e8f0",whiteSpace:"nowrap"}}>{h}</th>)}
+                </tr></thead>
+                <tbody>
+                  {fStats.map((a,i)=>(
+                    <tr key={a.empId||a.name} style={{background:i===0?"#fffbeb":i%2===0?"white":"#fafbff",borderBottom:"1px solid #f1f5f9"}}>
+                      <td style={{padding:"10px 12px",fontWeight:800,color:i===0?C.amber:C.slate,fontSize:i===0?16:13}}>{i===0?"🏆":"#"+(i+1)}</td>
+                      <td style={{padding:"10px 12px"}}>
+                        <div style={{fontWeight:700,color:C.navy}}>{a.name}</div>
+                        <div style={{fontSize:10,color:C.slate,fontFamily:"monospace"}}>{a.empId}</div>
+                      </td>
+                      <td style={{padding:"10px 12px",color:C.slate,fontSize:11}}>{a.process}</td>
+                      <td style={{padding:"10px 12px",textAlign:"center",fontWeight:600}}>{a.daysWorked}</td>
+                      <td style={{padding:"10px 12px",fontWeight:900,color:pCol(a.avgProd),fontSize:16}}>{a.avgProd}%</td>
+                      <td style={{padding:"10px 12px",textAlign:"center"}}><Pill label={a.above100} color={C.green}/></td>
+                      <td style={{padding:"10px 12px",textAlign:"center"}}><Pill label={a.below75} color={a.below75>0?C.red:C.slate}/></td>
+                      <td style={{padding:"10px 12px",textAlign:"center",fontWeight:600}}>{a.totalClaims}</td>
+                      <td style={{padding:"10px 12px",fontWeight:700,color:a.avgQual>0?pCol(a.avgQual):C.slate}}>{a.avgQual>0?a.avgQual+"%":"—"}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          <button onClick={genEmail} disabled={loading} style={btn(`linear-gradient(135deg,${C.amber},${C.amberD})`,C.navy,{width:"100%",padding:"14px",fontSize:15,borderRadius:12,marginBottom:16})}>
+            {loading?`⏳ Writing ${type} summary…`:`✨ Generate ${type==="weekly"?"Weekly":"Monthly"} Summary Email`}
+          </button>
+          {email&&(
+            <div style={{...card,padding:0,overflow:"hidden"}}>
+              <div style={{background:C.navy,padding:"12px 18px",display:"flex",alignItems:"center",justifyContent:"space-between",flexWrap:"wrap",gap:8}}>
+                <span style={{color:"rgba(255,255,255,0.6)",fontSize:12}}>Subject: {type==="weekly"?"Weekly":"Monthly"} Summary – {periodLabel}</span>
+                <div style={{display:"flex",gap:8}}>
+                  <button onClick={()=>{navigator.clipboard.writeText(email);setCopied(true);setTimeout(()=>setCopied(false),2500);}} style={btn(copied?"rgba(16,185,129,0.3)":C.amber,copied?"#6ee7b7":C.navy,{padding:"6px 14px",fontSize:12})}>{copied?"✅ Copied":"📋 Copy"}</button>
+                  <button onClick={()=>{window.location.href=`mailto:?subject=${encodeURIComponent((type==="weekly"?"Weekly":"Monthly")+" Summary – "+periodLabel)}&body=${encodeURIComponent(email)}`;}} style={btn("rgba(99,102,241,0.2)","#a5b4fc",{padding:"6px 14px",fontSize:12,border:"1px solid rgba(99,102,241,0.3)"})}>📧 Outlook</button>
+                </div>
+              </div>
+              <div style={{padding:"24px 28px",whiteSpace:"pre-wrap",fontSize:14,lineHeight:1.9,color:"#1e293b",fontFamily:"Calibri,Segoe UI,sans-serif"}}>{email}</div>
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  FEEDBACK CENTER                                 ║
+// ╚══════════════════════════════════════════════════╝
+function FeedbackCenter(){
+  const [users,setUsers]=useState([]);
+  const [selU,setSelU]=useState("");
+  const [allFb,setAllFb]=useState({});
+  const [text,setText]=useState("");
+  const [date,setDate]=useState(todayStr());
+  const [saved,setSaved]=useState(false);
+
+  useEffect(()=>{
+    (async()=>{
+      setUsers((await S.get("rcm:users")||[]).filter(u=>u.role==="employee"&&u.active!==false));
+      setAllFb(await S.get("rcm:feedback")||{});
+    })();
+  },[]);
+
+  const send=async()=>{
+    if(!selU||!text.trim())return;
+    const updated={...allFb,[selU]:[...(allFb[selU]||[]),{id:Date.now(),date,text:text.trim(),acknowledged:false,sentAt:new Date().toISOString()}]};
+    await S.set("rcm:feedback",updated);
+    setAllFb(updated);setText("");setSaved(true);setTimeout(()=>setSaved(false),2500);
+  };
+
+  const curFb=(allFb[selU]||[]).slice().reverse();
+  const unack=Object.values(allFb).flat().filter(f=>!f.acknowledged).length;
+
+  return (
+    <div className="fade">
+      {unack>0&&<div style={{background:"#fffbeb",border:"1px solid #fde68a",borderRadius:10,padding:"10px 16px",marginBottom:16,fontSize:13,fontWeight:600,color:"#92400e"}}>⚠ {unack} feedback message{unack>1?"s":""} awaiting acknowledgement</div>}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:18}}>
+        <div style={card}>
+          <STitle icon="✍️">Send Feedback</STitle>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Select Employee</div>
+            <select value={selU} onChange={e=>setSelU(e.target.value)} style={inp}>
+              <option value="">-- Choose team member --</option>
+              {users.map(u=><option key={u.empId} value={u.empId}>{u.name} ({u.empId})</option>)}
+            </select>
+          </div>
+          <div style={{marginBottom:12}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Feedback Date</div>
+            <input type="date" value={date} onChange={e=>setDate(e.target.value)} style={inp}/>
+          </div>
+          <div style={{marginBottom:16}}>
+            <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Message</div>
+            <textarea value={text} onChange={e=>setText(e.target.value)} rows={5} placeholder="Write specific, constructive feedback…" style={{...inp,resize:"vertical"}}/>
+          </div>
+          <button onClick={send} style={btn(saved?C.green:`linear-gradient(135deg,${C.amber},${C.amberD})`,saved?"white":C.navy,{width:"100%",padding:"11px"})}>
+            {saved?"✅ Feedback Sent!":"📤 Send Feedback"}
+          </button>
+        </div>
+        <div style={card}>
+          <STitle icon="📨">History {selU&&`— ${users.find(u=>u.empId===selU)?.name||""}`}</STitle>
+          {!selU?<div style={{color:C.slate,textAlign:"center",padding:"40px 0",fontSize:13}}>Select an employee to view feedback</div>:
+          curFb.length===0?<div style={{color:C.slate,textAlign:"center",padding:"40px 0",fontSize:13}}>No feedback sent yet</div>:
+          <div style={{maxHeight:420,overflowY:"auto"}}>
+            {curFb.map(f=>(
+              <div key={f.id} style={{border:`1.5px solid ${f.acknowledged?"#6ee7b7":"#fde68a"}`,borderRadius:10,padding:14,marginBottom:10,background:f.acknowledged?"#f0fdf4":"#fffbeb"}}>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <span style={{fontSize:12,fontWeight:700,color:C.navy}}>{fmtD(f.date)}</span>
+                  <Pill label={f.acknowledged?"✅ Acknowledged":"⏳ Awaiting"} color={f.acknowledged?C.green:C.orange}/>
+                </div>
+                <div style={{fontSize:13,color:"#1e293b",lineHeight:1.6}}>{f.text}</div>
+              </div>
+            ))}
+          </div>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  EMPLOYEE APP                                    ║
+// ╚══════════════════════════════════════════════════╝
+function EmployeeApp({user,onLogout}){
+  const [tab,setTab]=useState("entry");
+  const [date,setDate]=useState(todayStr());
+  const [form,setForm]=useState({total:"",target:"50",prodPct:"",downtime:"",qualScore:"",reason:"",notes:"",onLeave:false});
+  const [submitted,setSubmitted]=useState(false);
+  const [saving,setSaving]=useState(false);
+  const [yData,setYData]=useState(null);
+  const [feedback,setFeedback]=useState([]);
+  const [acking,setAcking]=useState(null);
+  const [wStart,setWStart]=useState(getMon(todayStr()));
+  const [year,setYear]=useState(new Date().getFullYear());
+  const [month,setMonth]=useState(new Date().getMonth()+1);
+  const [wData,setWData]=useState([]);
+  const [mData,setMData]=useState([]);
+  const unread=feedback.filter(f=>!f.acknowledged).length;
+
+  const loadEntry=useCallback(async()=>{
+    const day=await S.get(`rcm:day:${date}`)||{};
+    const mine=day[user.empId];
+    if(mine)setForm({total:mine.total||"",target:mine.target||"50",prodPct:mine.prodPct||"",downtime:mine.downtime||"",qualScore:mine.qualScore||"",reason:mine.reason||"",notes:mine.notes||"",onLeave:!!mine.onLeave});
+    else setForm({total:"",target:"50",prodPct:"",downtime:"",qualScore:"",reason:"",notes:"",onLeave:false});
+    setSubmitted(!!mine);
+    const yd=await S.get(`rcm:day:${yestStr()}`)||{};
+    setYData(yd[user.empId]||null);
+  },[date,user.empId]);
+
+  const loadFb=useCallback(async()=>{
+    const all=await S.get("rcm:feedback")||{};
+    setFeedback((all[user.empId]||[]).slice().reverse());
+  },[user.empId]);
+
+  const loadProgress=useCallback(async()=>{
+    const wd=wDays(wStart),md=mDays(year,month);
+    const[wr,mr]=await Promise.all([Promise.all(wd.map(d=>S.get(`rcm:day:${d}`))),Promise.all(md.map(d=>S.get(`rcm:day:${d}`)))]);
+    setWData(wd.map((d,i)=>{const s=wr[i]?.[user.empId];return{date:fmtSh(d),prod:s?.prodPct?parseFloat(s.prodPct):null,qual:s?.qualScore?parseFloat(s.qualScore):null,total:s?.total?parseInt(s.total):null,target:s?.target?parseInt(s.target):50,onLeave:!!s?.onLeave};}));
+    setMData(md.map((d,i)=>{const s=mr[i]?.[user.empId];return{date:fmtSh(d),prod:s?.prodPct?parseFloat(s.prodPct):null,qual:s?.qualScore?parseFloat(s.qualScore):null};}));
+  },[wStart,year,month,user.empId]);
+
+  useEffect(()=>{loadEntry();},[loadEntry]);
+  useEffect(()=>{if(tab==="feedback")loadFb();},[tab,loadFb]);
+  useEffect(()=>{if(tab==="progress")loadProgress();},[tab,loadProgress]);
+
+  const submit=async()=>{
+    if(!form.prodPct){alert("Please enter Prod% before submitting.");return;}
+    setSaving(true);
+    const day=await S.get(`rcm:day:${date}`)||{};
+    day[user.empId]={...form,empId:user.empId,name:user.name,process:user.process,submittedAt:new Date().toISOString()};
+    await S.set(`rcm:day:${date}`,day);
+    setSubmitted(true);setSaving(false);
+  };
+
+  const ack=async(fbId)=>{
+    setAcking(fbId);
+    const all=await S.get("rcm:feedback")||{};
+    all[user.empId]=(all[user.empId]||[]).map(f=>f.id===fbId?{...f,acknowledged:true,ackedAt:new Date().toISOString()}:f);
+    await S.set("rcm:feedback",all);
+    setFeedback(all[user.empId].slice().reverse());
+    setAcking(null);
+  };
+
+  const activeW=wData.filter(d=>!d.onLeave&&d.prod!==null);
+  const avgWProd=avgArr(activeW.map(d=>d.prod));
+  const totalW=activeW.reduce((s,d)=>s+(d.total||0),0);
+  const targetW=activeW.reduce((s,d)=>s+d.target,0);
+  const deficit=targetW-totalW;
+  const TABS=[{id:"entry",label:"📝 My Entry"},{id:"progress",label:"📊 My Progress"},{id:"feedback",label:`💬 Feedback${unread>0?` (${unread})`:""}`}];
+
+  return (
+    <div style={{minHeight:"100vh",background:"#f1f5fb"}}>
+      <TopBar user={user} onLogout={onLogout} tabs={TABS} activeTab={tab} setTab={setTab}/>
+      <div style={{maxWidth:960,margin:"0 auto",padding:"22px 16px"}}>
+
+        {tab==="entry"&&(
+          <div className="fade">
+            {yData&&(
+              <div style={{...card,marginBottom:18,border:`1.5px solid ${C.indigo}33`,background:"linear-gradient(135deg,#eef2ff,#f8fafc)"}}>
+                <STitle icon="📅">Yesterday's Performance — {fmtD(yestStr())}</STitle>
+                <div style={{display:"flex",gap:12,flexWrap:"wrap"}}>
+                  {[{l:"Productivity",v:yData.prodPct?yData.prodPct+"%":"—",c:pCol(yData.prodPct),icon:"📊"},{l:"Claims",v:yData.total||"—",c:C.indigo,icon:"📁"},{l:"Target",v:yData.target||"—",c:C.slate,icon:"🎯"},{l:"Quality",v:yData.qualScore?yData.qualScore+"%":"—",c:yData.qualScore?pCol(yData.qualScore):C.slate,icon:"⭐"},{l:"Downtime",v:yData.downtime?yData.downtime+"h":"None",c:C.orange,icon:"⏱"}].map(({l,v,c,icon})=>(
+                    <div key={l} style={{background:"white",borderRadius:10,padding:"12px 16px",flex:1,minWidth:90,border:`1px solid ${c}33`,textAlign:"center"}}>
+                      <div style={{fontSize:20,marginBottom:4}}>{icon}</div>
+                      <div style={{fontSize:18,fontWeight:900,color:c}}>{v}</div>
+                      <div style={{fontSize:10,fontWeight:700,color:C.slate,textTransform:"uppercase",letterSpacing:0.8,marginTop:2}}>{l}</div>
+                    </div>
+                  ))}
+                </div>
+                {parseFloat(yData.prodPct)<100&&<div style={{marginTop:12,background:"#fffbeb",borderRadius:8,padding:"8px 12px",fontSize:12,color:"#92400e",border:"1px solid #fde68a"}}>
+                  ⚠ Yesterday you were {(100-parseFloat(yData.prodPct)).toFixed(1)}% below target. Action plan: {yData.notes||"Not specified"}
+                </div>}
+              </div>
+            )}
+            <div style={card}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:18,flexWrap:"wrap",gap:10}}>
+                <div>
+                  <div style={{fontSize:16,fontWeight:800,color:C.navy}}>📝 Submit Today's Production Data</div>
+                  <div style={{fontSize:12,color:C.slate,marginTop:3}}>Your Team Lead monitors this in real time · {user.process}</div>
+                </div>
+                <input type="date" value={date} onChange={e=>{setDate(e.target.value);setSubmitted(false);}} style={{...inp,width:"auto",fontWeight:700}}/>
+              </div>
+              {submitted&&<div style={{background:"#d1fae5",border:"1px solid #6ee7b7",borderRadius:10,padding:"10px 14px",marginBottom:16,display:"flex",gap:10,alignItems:"center"}}>
+                <span style={{fontSize:20}}>✅</span>
+                <div><div style={{fontWeight:700,color:"#065f46"}}>Submitted for {fmtD(date)}</div><div style={{fontSize:12,color:"#047857"}}>Your TL can see your data. You can update anytime.</div></div>
+              </div>}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(3,1fr)",gap:14,marginBottom:16}}>
+                {[{l:"Total Claims",k:"total",ph:"e.g. 38",t:"number"},{l:"Target",k:"target",ph:"e.g. 50",t:"number"},{l:"Productivity % *",k:"prodPct",ph:"e.g. 97.5",t:"number",c:true},{l:"Downtime (hrs)",k:"downtime",ph:"e.g. 4",t:"number"},{l:"Yesterday Quality %",k:"qualScore",ph:"e.g. 96.5",t:"number",c:true}].map(({l,k,ph,t,c})=>(
+                  <div key={k}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>{l}</div>
+                    <input type={t} placeholder={ph} value={form[k]} onChange={e=>setForm({...form,[k]:e.target.value})} style={{...inp,borderColor:c&&form[k]?pCol(form[k]):"#d1d5db",color:c&&form[k]?pCol(form[k]):"#1e293b",fontWeight:c&&form[k]?900:500,fontSize:c&&form[k]?16:13}}/>
+                  </div>
+                ))}
+                <div style={{display:"flex",alignItems:"center",gap:8,paddingTop:24}}>
+                  <input type="checkbox" id="lv" checked={form.onLeave} onChange={e=>setForm({...form,onLeave:e.target.checked})} style={{width:16,height:16,cursor:"pointer"}}/>
+                  <label htmlFor="lv" style={{fontSize:13,fontWeight:600,color:C.navy,cursor:"pointer"}}>On Leave today</label>
+                </div>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:14,marginBottom:20}}>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:parseFloat(form.prodPct)<100&&form.prodPct?"#b45309":C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>{parseFloat(form.prodPct)<100&&form.prodPct?"⚠ Reason for Low Production":"Reason / Highlights"}</div>
+                  <textarea value={form.reason} onChange={e=>setForm({...form,reason:e.target.value})} rows={3} placeholder={parseFloat(form.prodPct)<100&&form.prodPct?"Explain: VDI issues, DDE downtime, complex claims…":"Highlights from today"} style={{...inp,resize:"vertical",borderColor:parseFloat(form.prodPct)<100&&form.prodPct?"#fcd34d":"#d1d5db",background:parseFloat(form.prodPct)<100&&form.prodPct?"#fffbeb":"white"}}/>
+                </div>
+                <div>
+                  <div style={{fontSize:10,fontWeight:700,color:C.slate,letterSpacing:1,textTransform:"uppercase",marginBottom:5}}>Action Plan / Recovery</div>
+                  <textarea value={form.notes} onChange={e=>setForm({...form,notes:e.target.value})} rows={3} placeholder="e.g. Will cover deficit by EOW, working on CCA project…" style={{...inp,resize:"vertical"}}/>
+                </div>
+              </div>
+              <button onClick={submit} disabled={saving} style={btn(`linear-gradient(135deg,${C.amber},${C.amberD})`,C.navy,{width:"100%",padding:"14px",fontSize:15,borderRadius:12})}>
+                {saving?"Submitting…":submitted?"🔄 Update My Submission":"📤 Submit to Team Lead"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {tab==="progress"&&(
+          <div className="fade">
+            <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span style={{fontWeight:700,color:C.navy,fontSize:12}}>📅 Week:</span>
+              <button onClick={()=>setWStart(addDays(wStart,-7))} style={btn("#f1f5f9",C.navy,{padding:"5px 12px"})}>←</button>
+              <span style={{flex:1,textAlign:"center",fontWeight:700,color:C.navy,fontSize:13}}>{fmtD(wStart)} – {fmtD(addDays(wStart,4))}</span>
+              <button onClick={()=>setWStart(addDays(wStart,7))} style={btn("#f1f5f9",C.navy,{padding:"5px 12px"})}>→</button>
+              <button onClick={loadProgress} style={btn("#eef2ff",C.indigo,{padding:"5px 12px",fontSize:12})}>↺</button>
+            </div>
+            <div style={{display:"flex",gap:12,marginBottom:14,flexWrap:"wrap"}}>
+              <StatCard label="Week Avg Prod"  value={avgWProd?avgWProd+"%":"—"} color={pCol(avgWProd)} icon="📊"/>
+              <StatCard label="Total Claims"   value={totalW} color={C.indigo} icon="📁"/>
+              <StatCard label="Weekly Target"  value={targetW} color={C.slate} icon="🎯"/>
+              <StatCard label="Deficit/Extra"  value={deficit>0?`-${deficit}`:deficit===0?"✅ Met":`+${Math.abs(deficit)}`} color={deficit>0?C.red:C.green} icon={deficit>0?"⚠":"✅"} sub={deficit>0?"Below target":""}/>
+              <StatCard label="Avg Quality"    value={avgArr(wData.filter(d=>d.qual!==null).map(d=>d.qual))?avgArr(wData.filter(d=>d.qual!==null).map(d=>d.qual))+"%":"—"} color={C.purple} icon="⭐"/>
+            </div>
+            <div style={{...card,marginBottom:14}}>
+              <STitle icon="📊">My Daily Productivity This Week</STitle>
+              <BarChartSVG data={wData.map(d=>({name:d.date,prod:d.prod,qual:d.qual,onLeave:d.onLeave}))}/>
+            </div>
+            <div style={{...card,padding:"12px 16px",marginBottom:14,display:"flex",alignItems:"center",gap:12,flexWrap:"wrap"}}>
+              <span style={{fontWeight:700,color:C.navy,fontSize:12}}>🗓 Month:</span>
+              <button onClick={()=>{if(month===1){setMonth(12);setYear(y=>y-1);}else setMonth(m=>m-1);}} style={btn("#f1f5f9",C.navy,{padding:"5px 12px"})}>←</button>
+              <span style={{flex:1,textAlign:"center",fontWeight:700,color:C.navy}}>{MONTHS[month-1]} {year}</span>
+              <button onClick={()=>{if(month===12){setMonth(1);setYear(y=>y+1);}else setMonth(m=>m+1);}} style={btn("#f1f5f9",C.navy,{padding:"5px 12px"})}>→</button>
+              <button onClick={loadProgress} style={btn("#eef2ff",C.indigo,{padding:"5px 12px",fontSize:12})}>↺</button>
+            </div>
+            {mData.length>0&&(
+              <div style={card}>
+                <STitle icon="📈">My Monthly Trend — {MONTHS[month-1]} {year}</STitle>
+                <LineChartSVG data={mData}/>
+              </div>
+            )}
+          </div>
+        )}
+
+        {tab==="feedback"&&(
+          <div className="fade">
+            <STitle icon="💬">Feedback from Your Team Lead</STitle>
+            {feedback.length===0?(
+              <div style={{...card,textAlign:"center",padding:"50px 20px",color:C.slate}}>
+                <div style={{fontSize:38,marginBottom:10}}>💬</div>
+                <div style={{fontSize:14,fontWeight:700,color:C.navy}}>No feedback yet</div>
+                <div style={{fontSize:12,marginTop:6}}>Your team lead will share feedback here</div>
+              </div>
+            ):feedback.map(f=>(
+              <div key={f.id} style={{...card,marginBottom:14,border:`2px solid ${f.acknowledged?"#6ee7b7":"#fde68a"}`,background:f.acknowledged?"#f0fdf4":"#fffbeb"}}>
+                <div style={{display:"flex",alignItems:"center",justifyContent:"space-between",marginBottom:10}}>
+                  <div>
+                    <div style={{fontWeight:800,color:C.navy,fontSize:14}}>📅 {fmtD(f.date)}</div>
+                    <div style={{fontSize:11,color:C.slate,marginTop:2}}>{new Date(f.sentAt).toLocaleString("en-IN",{day:"2-digit",month:"short",hour:"2-digit",minute:"2-digit"})}</div>
+                  </div>
+                  <Pill label={f.acknowledged?"✅ Acknowledged":"⚠ Action Required"} color={f.acknowledged?C.green:C.orange}/>
+                </div>
+                <div style={{fontSize:14,color:"#1e293b",lineHeight:1.75,background:"white",borderRadius:8,padding:"14px 16px",marginBottom:f.acknowledged?0:14}}>{f.text}</div>
+                {!f.acknowledged&&<button onClick={()=>ack(f.id)} disabled={acking===f.id} style={btn(`linear-gradient(135deg,${C.green},#059669)`,"white",{padding:"9px 22px"})}>
+                  {acking===f.id?"Acknowledging…":"✅ I Acknowledge This Feedback"}
+                </button>}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  ADMIN / MANAGER APP                             ║
+// ╚══════════════════════════════════════════════════╝
+function AdminApp({user,onLogout}){
+  const [tab,setTab]=useState("today");
+  const TABS=[
+    {id:"today",   label:"📋 Today"},
+    {id:"weekly",  label:"📅 Weekly"},
+    {id:"monthly", label:"🗓 Monthly"},
+    {id:"feedback",label:"💬 Feedback"},
+    ...(user.role==="admin"?[{id:"team",label:"👥 Team Mgmt"}]:[]),
+  ];
+  return (
+    <div style={{minHeight:"100vh",background:"#f1f5fb"}}>
+      <TopBar user={user} onLogout={onLogout} tabs={TABS} activeTab={tab} setTab={setTab}/>
+      <div style={{maxWidth:1280,margin:"0 auto",padding:"22px 18px"}}>
+        {tab==="today"   &&<TodayStatus user={user}/>}
+        {tab==="weekly"  &&<SummaryDash type="weekly"  user={user}/>}
+        {tab==="monthly" &&<SummaryDash type="monthly" user={user}/>}
+        {tab==="feedback"&&<FeedbackCenter/>}
+        {tab==="team"    &&user.role==="admin"&&<TeamMgmt adminUser={user}/>}
+      </div>
+    </div>
+  );
+}
+
+// ╔══════════════════════════════════════════════════╗
+// ║  ROOT                                            ║
+// ╚══════════════════════════════════════════════════╝
+function App(){
+  const [user,setUser]=useState(null);
+  if(!user) return <LoginScreen onLogin={setUser}/>;
+  if(user.role==="employee") return <EmployeeApp user={user} onLogout={()=>setUser(null)}/>;
+  return <AdminApp user={user} onLogout={()=>setUser(null)}/>;
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
